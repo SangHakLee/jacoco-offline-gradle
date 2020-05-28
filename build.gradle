@@ -1,0 +1,85 @@
+plugins {
+    id 'java'
+    id 'jacoco'
+}
+
+group 'org.example'
+version '1.0-SNAPSHOT'
+
+configurations {
+    jacocoAnt
+    jacocoRuntime
+}
+
+repositories {
+    jcenter()
+}
+
+dependencies {
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+
+    jacocoAnt group: 'org.jacoco', name: 'org.jacoco.ant', version: '0.8.5', classifier: 'nodeps'
+    jacocoRuntime group: 'org.jacoco', name: 'org.jacoco.agent', version: '0.8.5', classifier: 'runtime'
+}
+
+test {
+    finalizedBy jacocoTestReport
+}
+jacocoTestReport {
+    reports {
+        html.enabled true
+        xml.enabled false
+        csv.enabled false
+        // html.destination file("${buildDir}/jacocoHtml")
+    }
+}
+
+// jacoco Offline Instrumentation https://github.com/powermock/powermock/wiki/Code-coverage-with-JaCoCo
+task instrument(dependsOn: ['classes']) {
+    ext.outputDir = buildDir.path + '/classes-instrumented'
+    doLast {
+        ant.taskdef(
+            name: 'instrument',
+            classname: 'org.jacoco.ant.InstrumentTask',
+            classpath: configurations.jacocoAnt.asPath
+        )
+        ant.instrument(destdir: outputDir) {
+            sourceSets.main.output.classesDirs.each { fileset(dir: it) }
+            // fileset(dir: sourceSets.main.output.classesDir)
+        }
+    }
+}
+gradle.taskGraph.whenReady { graph ->
+  if (graph.hasTask(instrument)) {
+    tasks.withType(Test) {
+      doFirst {
+        systemProperty 'jacoco-agent.destfile', buildDir.path + '/jacoco/tests.exec'
+        classpath = files(instrument.outputDir) + classpath + configurations.jacocoRuntime
+      }
+    }
+  }
+}
+task report(dependsOn: ['instrument', 'test']) {
+    doLast {
+        ant.taskdef(
+            name: 'report',
+            classname: 'org.jacoco.ant.ReportTask',
+            classpath: configurations.jacocoAnt.asPath
+        )
+        ant.report() {
+            executiondata {
+                ant.file(file: buildDir.path + '/jacoco/tests.exec')
+            }
+            structure(name: 'Example') {
+                classfiles {
+                    sourceSets.main.output.classesDirs.each { fileset(dir: it) }
+                }
+                sourcefiles {
+                    fileset(dir: 'src/main/java')
+                }
+            }
+            html(destdir: buildDir.path + '/reports/jacoco')
+        }
+    }
+}
+test.dependsOn instrument
